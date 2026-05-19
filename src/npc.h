@@ -550,6 +550,8 @@ struct npc_short_term_cache {
     std::shared_ptr<npc_attack> current_attack;
 
 
+    std::set<tripoint_bub_ms> visible_points;
+
     // Use weak_ptr to avoid circular references between Creatures
     // attitude of creatures the npc can see
     std::vector<weak_ptr_fast<Creature>> hostile_guys;
@@ -1197,6 +1199,12 @@ class npc : public Character
         float evaluate_monster( const monster &target, int dist ) const;
         float evaluate_character( const Character &candidate, bool my_gun, bool enemy );
         float evaluate_self( bool my_gun );
+
+        void assess_environment();
+        void fov_check(tripoint_bub_ms pos, int radius);
+        void mark_visible(tripoint_bub_ms pos);
+        void cast_los(tripoint_bub_ms pos, int row, float s_slope, float e_slope, int radius, int octant);
+        void transform_octant(int dx, int dy, tripoint_bub_ms pos, int oct, int& mx, int& my);
 
         void assess_danger();
         void act_on_danger_assessment();

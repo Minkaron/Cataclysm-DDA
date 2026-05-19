@@ -880,6 +880,113 @@ std::optional<int> npc_short_term_cache::closest_enemy_to_friendly_distance() co
     return distance;
 }
 
+void npc::assess_environment()
+{
+    const map& here = get_map();
+
+    int sight_radius = sight_range(here.ambient_light_at(pos_bub()));
+    fov_check(pos_bub(), sight_radius);
+
+    std::vector<weak_ptr_fast<Creature>> npc_store;
+    std::vector<weak_ptr_fast<Creature>> critter_store;
+    creature_tracker& creatures = get_creature_tracker();
+
+    for (const tripoint_bub_ms& point : ai_cache.visible_points) {
+
+        Creature *critter = creatures.creature_at<Creature>(point);
+        if (critter != nullptr) {
+            if (critter->is_npc()) {
+                npc_store.emplace_back(g->shared_from(*critter));
+            }
+            else if (critter->is_monster()) {
+                critter_store.emplace_back(g->shared_from(*critter));
+            }
+            else if (critter->is_avatar()) {
+
+            }
+        }
+        
+    }
+}
+
+void npc::fov_check(tripoint_bub_ms pos, int radius)
+{
+    mark_visible(pos);
+    for (int i = 0; i < 8; ++i)
+    {
+        cast_los(pos, 1, 1.0, 0.0, radius, i);
+    }
+}
+
+void npc::mark_visible(tripoint_bub_ms pos)
+{
+    ai_cache.visible_points.emplace(pos);
+}
+
+void npc::cast_los(tripoint_bub_ms pos, int row, float s_slope, float e_slope, int radius, int octant)
+{
+    if (s_slope < e_slope) return;
+
+    const map& here = get_map();
+    float next_slope = s_slope;
+
+    for (int dist = row; dist <= radius; dist++) {
+        bool opaque = false;
+
+        for (int dx = -dist; dx <= 0; dx++) {
+            int dy = -dist;
+            float l_slope = (dx - 0.5) / (dy + 0.5);
+            float r_slope = (dx + 0.5) / (dy - 0.5);
+
+            if (r_slope > s_slope) continue;
+            if (l_slope < e_slope) break;
+
+            int mx, my;
+            transform_octant(dx, dy, pos, octant, mx, my);
+
+            tripoint_bub_ms mpos = tripoint_bub_ms(mx, my, pos.z());
+            if (dx * dx + dy * dy < radius * radius && !here.has_flag(ter_furn_flag::TFLAG_WALL, mpos.xy())) {
+                mark_visible(mpos);
+            }
+            if (opaque) {
+                if (here.has_flag(ter_furn_flag::TFLAG_WALL, mpos.xy())) {
+
+                    next_slope = r_slope;
+                    continue;
+                }
+                else
+                {
+                    opaque = false;
+                    s_slope = next_slope;
+                }
+            }
+            else {
+                if (here.has_flag(ter_furn_flag::TFLAG_WALL, mpos.xy()) && dist < radius) {
+                    opaque = true;
+                    cast_los(pos, dist + 1, s_slope, l_slope, radius, octant);
+                    next_slope = r_slope;
+                }
+            }
+        }
+
+        if (opaque) break;
+    }
+}
+
+void npc::transform_octant(int dx, int dy, tripoint_bub_ms pos, int oct, int& mx, int& my)
+{
+    switch (oct) {
+    case 0: mx = pos.x() + dy; my = pos.y() - dx; break;
+    case 1: mx = pos.x() + dx; my = pos.y() - dy; break;
+    case 2: mx = pos.x() - dx; my = pos.y() - dy; break;
+    case 3: mx = pos.x() - dy; my = pos.y() - dx; break;
+    case 4: mx = pos.x() - dy; my = pos.y() + dx; break;
+    case 5: mx = pos.x() - dx; my = pos.y() + dy; break;
+    case 6: mx = pos.x() + dx; my = pos.y() + dy; break;
+    case 7: mx = pos.x() + dy; my = pos.y() + dx; break;
+    }
+}
+
 void npc::assess_danger()
 {
     const map &here = get_map();
@@ -1458,6 +1565,7 @@ void npc::regen_ai_cache()
         }
     }
     float old_assessment = ai_cache.danger_assessment;
+    ai_cache.visible_points.clear();
     ai_cache.friends.clear();
     ai_cache.hostile_guys.clear();
     ai_cache.neutral_guys.clear();
@@ -1487,6 +1595,7 @@ void npc::regen_ai_cache()
         path.clear();
     }
 
+    assess_environment();
     assess_danger();
     if( old_assessment > NPC_DANGER_VERY_LOW && ai_cache.danger_assessment <= 0 ) {
         warn_about( "relax", 30_minutes );
